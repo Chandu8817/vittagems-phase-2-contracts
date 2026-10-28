@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VittaGems Test Console</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◆</span>
+      <div>
+        <strong>VittaGems Test Console</strong>
+        <small id="chainInfo">connecting…</small>
+      </div>
+    </div>
+    <div class="controls">
+      <label class="field inline">
+        <span>Acting account</span>
+        <select id="accountSelect"></select>
+      </label>
+      <label class="toggle" title="When on, each action is sent from the account holding the required role. Turn off to send everything from the acting account and test access control.">
+        <input type="checkbox" id="autoRole" checked />
+        <span>Auto-pick role account</span>
+      </label>
+      <div class="timewarp">
+        <span>Time</span>
+        <button data-warp="60">+1m</button>
+        <button data-warp="3600">+1h</button>
+        <button data-warp="86400">+1d</button>
+        <button data-warp="259200">+3d</button>
+      </div>
+      <button id="refreshBtn" class="ghost">↻ Refresh</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidenav">
+      <a href="#overview">Overview</a>
+      <a href="#scenarios">Scenarios</a>
+      <a href="#assets">1 · Asset registry</a>
+      <a href="#dao">2 · Approval DAO</a>
+      <a href="#reserves">3 · Reserves &amp; PoR</a>
+      <a href="#mint">4 · Mint</a>
+      <a href="#redeem">5 · Redeem</a>
+      <a href="#oracle">6 · Oracle &amp; treasury</a>
+      <a href="#emergency">7 · Emergency</a>
+      <a href="#accounts">Accounts</a>
+    </nav>
+
+    <main id="main">
+      <div id="setupError" class="card error" hidden></div>
+
+      <section id="overview">
+        <h2>Overview</h2>
+        <div class="stats" id="stats"></div>
+      </section>
+
+      <section id="scenarios">
+        <h2>Scenarios</h2>
+        <p class="hint">Each scenario runs real transactions from the right role accounts and logs every step. Run them in order for the full story.</p>
+        <div class="scenario-grid">
+          <div class="card scenario">
+            <h3>A · Happy path</h3>
+            <p>Register a $1.5M gem → DAO approves → allocate 100% to reserves → snapshot → mint 500k VGUSD → redeem 100k for USDC.</p>
+            <button data-scenario="happy">Run</button>
+          </div>
+          <div class="card scenario">
+            <h3>B · Asset suspended</h3>
+            <p>DAO suspends a backing asset → reserves drop → controller unhealthy → a new mint is blocked by the collateral check.</p>
+            <button data-scenario="suspend">Run</button>
+          </div>
+          <div class="card scenario">
+            <h3>C · Reinstate &amp; revalue</h3>
+            <p>DAO reinstates the suspended asset, then revalues it +20% — pool values and max mintable follow automatically.</p>
+            <button data-scenario="reinstate">Run</button>
+          </div>
+          <div class="card scenario">
+            <h3>D · Emergency pause</h3>
+            <p>Pauser multisig pauses token and controller → transfers and mints revert → only the DAO admin can unpause.</p>
+            <button data-scenario="pause">Run</button>
+          </div>
+          <div class="card scenario">
+            <h3>E · Access control</h3>
+            <p>A plain holder tries registrar, allocator, governor, settler and pauser actions — each must revert.</p>
+            <button data-scenario="access">Run</button>
+          </div>
+          <div class="card scenario">
+            <h3>F · Oracle edge cases</h3>
+            <p>Depeg to $0.97 changes the quote, a stale feed blocks approval, a DAO fallback price restores it.</p>
+            <button data-scenario="oracle">Run</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="assets">
+        <h2>1 · Asset registry <small>AssetRegistry (ERC-721 “VGA”)</small></h2>
+        <div class="grid2">
+          <form class="card" data-form="registerAsset">
+            <h3>Register asset <span class="role">Registrar</span></h3>
+            <label class="field"><span>Owner (vault)</span><select name="owner" data-accounts></select></label>
+            <label class="field"><span>Asset class</span>
+              <select name="assetClass"><option>GEMSTONE</option><option>MINING_OUTPUT</option><option>GOLD</option></select>
+            </label>
+            <label class="field"><span>External ref (certificate no., unique)</span><input name="externalRef" data-random-ref required /></label>
+            <label class="field"><span>Document bundle (hashed with keccak256)</span><input name="doc" value="gia-report-v1.pdf" required /></label>
+            <label class="field"><span>Valuation (USD)</span><input name="valuation" type="number" step="any" value="1500000" required /></label>
+            <label class="field"><span>Metadata URI</span><input name="uri" value="ipfs://demo-asset" /></label>
+            <button>Register</button>
+          </form>
+          <div class="stack">
+            <form class="card" data-form="updateAsset">
+              <h3>Edit / resubmit asset <span class="role">Registrar</span></h3>
+              <p class="hint">Pending or Rejected only. A Rejected asset goes back to Pending.</p>
+              <div class="row">
+                <label class="field"><span>Asset id</span><input name="assetId" type="number" min="1" required /></label>
+                <label class="field"><span>Valuation (USD)</span><input name="valuation" type="number" step="any" required /></label>
+              </div>
+              <label class="field"><span>Document bundle</span><input name="doc" value="gia-report-v2.pdf" required /></label>
+              <label class="field"><span>Metadata URI (blank keeps current)</span><input name="uri" /></label>
+              <button>Update</button>
+            </form>
+            <form class="card" data-form="transferNft">
+              <h3>Transfer asset NFT <span class="role">NFT owner</span></h3>
+              <p class="hint">Approved and Suspended assets are locked and must revert with <code>AssetLocked</code>.</p>
+              <div class="row">
+                <label class="field"><span>Asset id</span><input name="assetId" type="number" min="1" required /></label>
+                <label class="field"><span>To</span><select name="to" data-accounts></select></label>
+              </div>
+              <button>Transfer</button>
+            </form>
+          </div>
+        </div>
+        <div class="card"><h3>Assets</h3><div id="assetsTable"></div></div>
+      </section>
+
+      <section id="dao">
+        <h2>2 · Approval DAO <small>AssetApprovalDAO</small></h2>
+        <div id="daoInfo" class="card"></div>
+        <div class="grid3">
+          <form class="card" data-form="proposeAsset">
+            <h3>Asset action <span class="role">Member</span></h3>
+            <label class="field"><span>Proposer</span><select name="proposer" data-members></select></label>
+            <div class="row">
+              <label class="field"><span>Action</span>
+                <select name="action">
+                  <option value="0">Approve</option><option value="1">Reject</option><option value="2">Suspend</option>
+                  <option value="3">Reinstate</option><option value="4">Retire</option>
+                </select>
+              </label>
+              <label class="field"><span>Asset id</span><input name="assetId" type="number" min="1" required /></label>
+            </div>
+            <label class="field"><span>Evidence (hashed)</span><input name="evidence" value="verification-report" /></label>
+            <label class="field"><span>Description</span><input name="description" value="Verified by council" /></label>
+            <button>Propose</button>
+          </form>
+          <form class="card" data-form="proposeRevalue">
+            <h3>Revaluation <span class="role">Member</span></h3>
+            <label class="field"><span>Proposer</span><select name="proposer" data-members></select></label>
+            <div class="row">
+              <label class="field"><span>Asset id</span><input name="assetId" type="number" min="1" required /></label>
+              <label class="field"><span>New valuation (USD)</span><input name="valuation" type="number" step="any" required /></label>
+            </div>
+            <label class="field"><span>Valuation report (hashed)</span><input name="evidence" value="appraisal-2026" /></label>
+            <label class="field"><span>Description</span><input name="description" value="Annual revaluation" /></label>
+            <button>Propose</button>
+          </form>
+          <form class="card" data-form="proposeMember">
+            <h3>Membership <span class="role">Member</span></h3>
+            <label class="field"><span>Proposer</span><select name="proposer" data-members></select></label>
+            <div class="row">
+              <label class="field"><span>Action</span><select name="action"><option value="6">Add</option><option value="7">Remove</option></select></label>
+              <label class="field"><span>Account</span><select name="account" data-accounts></select></label>
+            </div>
+            <label class="field"><span>Description</span><input name="description" value="Council change" /></label>
+            <button>Propose</button>
+          </form>
+        </div>
+        <div class="card"><h3>Proposals</h3><div id="proposalsTable"></div></div>
+        <form class="card" data-form="daoSettings">
+          <h3>DAO settings <span class="role">Admin</span></h3>
+          <div class="row">
+            <label class="field"><span>Voting period (s)</span><input name="votingPeriod" type="number" required /></label>
+            <label class="field"><span>Quorum</span><input name="quorum" type="number" required /></label>
+            <label class="field"><span>Threshold (bps)</span><input name="threshold" type="number" required /></label>
+            <button>Update</button>
+          </div>
+        </form>
+      </section>
+
+      <section id="reserves">
+        <h2>3 · Reserves &amp; Proof of Reserve <small>ReserveManager · ProofOfReserve</small></h2>
+        <div class="grid3">
+          <form class="card" data-form="allocate">
+            <h3>Allocate asset <span class="role">Allocator</span></h3>
+            <p class="hint">Approved assets only. Total across pools ≤ 100%. 0 removes.</p>
+            <div class="row">
+              <label class="field"><span>Asset id</span><input name="assetId" type="number" min="1" required /></label>
+              <label class="field"><span>Pool</span><select name="poolId" data-pools></select></label>
+            </div>
+            <label class="field"><span>Share (%)</span><input name="pct" type="number" step="0.01" min="0" max="100" value="100" required /></label>
+            <button>Allocate</button>
+          </form>
+          <div class="card stack-tight">
+            <h3>Pools <span class="role">Admin</span></h3>
+            <form data-form="createPool" class="row">
+              <label class="field"><span>New pool name</span><input name="name" value="Strategic Reserve" required /></label>
+              <button>Create</button>
+            </form>
+            <div id="poolsTable"></div>
+          </div>
+          <div class="card stack-tight">
+            <h3>Snapshots <span class="role">Anyone</span></h3>
+            <p class="hint" id="snapshotHint"></p>
+            <button data-action="recordSnapshot">Record snapshot</button>
+            <form data-form="snapshotInterval" class="row">
+              <label class="field"><span>Min interval (s) · Admin</span><input name="interval" type="number" min="0" required /></label>
+              <button class="ghost">Set</button>
+            </form>
+          </div>
+        </div>
+        <div class="card"><h3>Proof of Reserve summary</h3><div id="porSummary"></div></div>
+        <div class="card"><h3>Snapshot history</h3><div id="snapshotsTable"></div></div>
+      </section>
+
+      <section id="mint">
+        <h2>4 · Mint <small>CollateralController → VittaStablecoin</small></h2>
+        <div class="grid3">
+          <form class="card" data-form="requestMint">
+            <h3>Request mint <span class="role">Treasury ops</span></h3>
+            <label class="field"><span>Recipient</span><select name="to" data-accounts data-default="holder"></select></label>
+            <label class="field"><span>Amount (VGUSD)</span><input name="amount" type="number" step="any" value="500000" required /></label>
+            <p class="hint" id="maxMintHint"></p>
+            <button>Request</button>
+          </form>
+          <form class="card" data-form="controllerParams">
+            <h3>Risk parameters <span class="role">Governor</span></h3>
+            <label class="field"><span>Min collateral ratio (%)</span><input name="ratio" type="number" step="0.01" required /></label>
+            <label class="field"><span>Debt ceiling (VGUSD)</span><input name="ceiling" type="number" step="any" required /></label>
+            <div class="row"><button name="which" value="ratio">Set ratio</button><button name="which" value="ceiling">Set ceiling</button></div>
+          </form>
+          <div class="card stack-tight">
+            <h3>Monitoring <span class="role">Keeper · anyone</span></h3>
+            <p class="hint">Emits <code>ReserveRatioAlert</code> when the ratio is below the minimum.</p>
+            <button data-action="checkReserveRatio">checkReserveRatio()</button>
+            <form data-form="transferToken">
+              <h3>Transfer VGUSD <span class="role">Holder</span></h3>
+              <div class="row">
+                <label class="field"><span>To</span><select name="to" data-accounts></select></label>
+                <label class="field"><span>Amount</span><input name="amount" type="number" step="any" value="10" required /></label>
+              </div>
+              <button class="ghost">Transfer</button>
+            </form>
+          </div>
+        </div>
+        <div class="card"><h3>Mint requests</h3><div id="mintsTable"></div></div>
+      </section>
+
+      <section id="redeem">
+        <h2>5 · Redeem <small>RedemptionModule → Treasury USDC</small></h2>
+        <div class="grid3">
+          <form class="card" data-form="requestRedemption">
+            <h3>Request redemption <span class="role">Holder</span></h3>
+            <p class="hint">Approves the module for the amount, then locks the tokens.</p>
+            <label class="field"><span>Amount (VGUSD)</span><input name="amount" type="number" step="any" value="100000" required /></label>
+            <p class="hint" id="quoteHint"></p>
+            <button>Approve &amp; request</button>
+          </form>
+          <form class="card" data-form="redemptionParams">
+            <h3>Redemption parameters <span class="role">Governor</span></h3>
+            <label class="field"><span>Discount (bps, max 1000)</span><input name="discount" type="number" required /></label>
+            <label class="field"><span>Min redemption (VGUSD)</span><input name="minAmount" type="number" step="any" required /></label>
+            <div class="row"><button name="which" value="discount">Set discount</button><button name="which" value="min">Set minimum</button></div>
+          </form>
+          <div class="card" id="redeemInfo"></div>
+        </div>
+        <div class="card"><h3>Redemptions</h3><div id="redemptionsTable"></div></div>
+      </section>
+
+      <section id="oracle">
+        <h2>6 · Oracle &amp; treasury <small>ChainlinkPriceOracle · MockPriceFeed · MockTreasury</small></h2>
+        <div class="grid3">
+          <div class="card" id="oracleInfo"></div>
+          <div class="card stack-tight">
+            <form data-form="feedAnswer">
+              <h3>Mock feed <span class="role">Anyone (mock)</span></h3>
+              <div class="row">
+                <label class="field"><span>Price (USD)</span><input name="price" type="number" step="0.0001" value="1" required /></label>
+                <button>Set price</button>
+              </div>
+            </form>
+            <button class="ghost" data-action="makeStale">Make feed stale</button>
+            <form data-form="fallback">
+              <h3>Fallback price <span class="role">Governor</span></h3>
+              <div class="row">
+                <label class="field"><span>Price (USD)</span><input name="price" type="number" step="0.0001" value="0.999" required /></label>
+                <label class="field"><span>Valid for (h)</span><input name="hours" type="number" value="24" required /></label>
+              </div>
+              <button class="ghost">Set fallback</button>
+            </form>
+          </div>
+          <div class="card stack-tight">
+            <form data-form="fundTreasury">
+              <h3>Fund treasury <span class="role">Anyone (mock USDC)</span></h3>
+              <div class="row">
+                <label class="field"><span>USDC</span><input name="amount" type="number" step="any" value="100000" required /></label>
+                <button>Mint to treasury</button>
+              </div>
+            </form>
+            <div>
+              <h3>Treasury authorisation</h3>
+              <p class="hint" id="treasuryAuth"></p>
+              <div class="row">
+                <button class="ghost" data-action="authTreasury" data-value="true">Authorise module</button>
+                <button class="ghost" data-action="authTreasury" data-value="false">Revoke</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="emergency">
+        <h2>7 · Emergency controls</h2>
+        <div class="card"><div id="pauseTable"></div></div>
+      </section>
+
+      <section id="accounts">
+        <h2>Accounts</h2>
+        <div class="card"><div id="accountsTable"></div></div>
+      </section>
+    </main>
+
+    <aside class="log">
+      <div class="log-head">
+        <h3>Activity</h3>
+        <button class="ghost small" id="clearLog">Clear</button>
+      </div>
+      <ol id="log"></ol>
+    </aside>
+  </div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

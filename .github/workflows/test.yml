@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  FOUNDRY_PROFILE: ci
+
+jobs:
+  foundry:
+    name: Build, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Forge version
+        run: forge --version
+
+      - name: Format check
+        run: forge fmt --check
+
+      - name: Build
+        run: forge build --sizes
+
+      - name: Test (unit, fuzz, invariant)
+        run: forge test -vvv
+
+      - name: Coverage
+        run: forge coverage --no-match-coverage "(test|script)" --report summary
+
+  slither:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.1
+        with:
+          fail-on: high
